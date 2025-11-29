@@ -140,26 +140,26 @@ class TelegramAuthBot:
             return
         
         admin_help_text = """
-🛠️ *Панель администратора*
+🛠️ Панель администратора
 
-*Основные команды:*
-/admin\\_help - Показать эту справку
-/admin\\_status - Статус всех групп
+📋 Основные команды:
+/admin_help - Показать эту справку
+/admin_status - Статус всех групп
 /stats - Статистика по пользователям
 
-*Управление пользователями:*
+👥 Управление пользователями:
 • Автоматически получаете уведомления о новых пользователях
 • Используйте кнопки "✅ Подтвердить" и "❌ Отказать"
 • Пользователи удаляются автоматически через 2 минуты без авторизации
 
-*Права бота в группах:*
+⚙️ Права бота в группах:
 • Ban users
 • Delete messages  
 • Restrict members
 • Invite users via link
-    """
-    
-        await update.message.reply_text(admin_help_text, parse_mode='MarkdownV2')
+        """
+        
+        await update.message.reply_text(admin_help_text)
     
     async def _admin_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /admin_status для администраторов"""
@@ -175,7 +175,7 @@ class TelegramAuthBot:
             await update.message.reply_text("📊 Бот еще не добавлен ни в одну группу.")
             return
         
-        status_text = "📊 **Статус всех групп**\n\n"
+        status_text = "📊 Статус всех групп\n\n"
         
         for group_id, group_data in all_groups.items():
             group_title = group_data.get('title', 'Без названия')
@@ -188,13 +188,13 @@ class TelegramAuthBot:
                 if user_data.get('awaiting_admin_approval'):
                     awaiting_admin += 1
             
-            status_text += f"**{group_title}**\n"
-            status_text += f"├ ID: `{group_id}`\n"
-            status_text += f"├ Участников: {members_count}\n"
-            status_text += f"├ Ожидают авторизации: {pending_count - awaiting_admin}\n"
-            status_text += f"└ Ожидают подтверждения: {awaiting_admin}\n\n"
+            status_text += f"🏷️ {group_title}\n"
+            status_text += f"   ID: {group_id}\n"
+            status_text += f"   ✅ Участников: {members_count}\n"
+            status_text += f"   ⏳ Ожидают авторизации: {pending_count - awaiting_admin}\n"
+            status_text += f"   📝 Ожидают подтверждения: {awaiting_admin}\n\n"
         
-        await update.message.reply_text(status_text, parse_mode='Markdown')
+        await update.message.reply_text(status_text)
     
     async def _admin_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /stats для администраторов"""
@@ -236,25 +236,25 @@ class TelegramAuthBot:
                     total_awaiting_admin += 1
         
         stats_text = (
-            "📈 **Статистика системы**\n\n"
-            f"**Группы:**\n"
-            f"• Всего групп: {total_groups}\n"
-            f"• Участников: {total_members}\n"
-            f"• Ожидают авторизации: {total_pending - total_awaiting_admin}\n"
-            f"• Ожидают подтверждения: {total_awaiting_admin}\n\n"
+            "📈 Статистика системы\n\n"
+            f"📊 Группы:\n"
+            f"   • Всего групп: {total_groups}\n"
+            f"   • Участников: {total_members}\n"
+            f"   • Ожидают авторизации: {total_pending - total_awaiting_admin}\n"
+            f"   • Ожидают подтверждения: {total_awaiting_admin}\n\n"
             
-            f"**Пользователи:**\n"
-            f"• Всего в системе: {total_users}\n"
-            f"• С подтвержденным телефоном: {verified_users}\n"
-            f"• Не подтвержденных: {total_users - verified_users}\n\n"
+            f"👥 Пользователи:\n"
+            f"   • Всего в системе: {total_users}\n"
+            f"   • С подтвержденным телефоном: {verified_users}\n"
+            f"   • Не подтвержденных: {total_users - verified_users}\n\n"
             
-            f"**Команды админа:**\n"
-            f"• `/admin_status` - статус групп\n"
-            f"• `/admin_help` - справка\n"
-            f"• `/stats` - эта статистика"
+            f"⚡ Команды админа:\n"
+            f"   • /admin_status - статус групп\n"
+            f"   • /admin_help - справка\n"
+            f"   • /stats - эта статистика"
         )
         
-        await update.message.reply_text(stats_text, parse_mode='Markdown')
+        await update.message.reply_text(stats_text)
     
     async def _error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик ошибок"""
