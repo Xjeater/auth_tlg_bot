@@ -5,7 +5,7 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from bot.core import TelegramAuthBot
-from my_secrets import BOT_TOKEN  # Обновленный импорт
+from my_secrets import BOT_TOKEN
 
 def main():
     """Основная функция запуска"""

@@ -217,6 +217,14 @@ class AuthManager:
                         reply_markup=reply_markup
                     )
                     print(f"📨 Sent admin notification to {admin_id}")
+                    
+                    # Дополнительно отправляем подсказку про команды админа
+                    help_message = (
+                        "💡 *Подсказка для админа:*\n"
+                        "Используйте /admin_help для просмотра всех команд администратора"
+                    )
+                    await context.bot.send_message(admin_id, help_message, parse_mode='Markdown')
+                    
                 except Exception as e:
                     print(f"❌ Error notifying admin {admin_id}: {e}")
     
