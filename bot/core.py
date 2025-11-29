@@ -159,7 +159,7 @@ class TelegramAuthBot:
 • Invite users via link
         """
         
-        await update.message.reply_text(admin_help_text, parse_mode='Markdown')
+        await update.message.reply_text(admin_help_text, parse_mode='MarkdownV2')
     
     async def _admin_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /admin_status для администраторов"""
