@@ -164,6 +164,10 @@ class GroupManager:
             # Получаем данные пользователя из ожидания
             pending_users = group_data.get('pending_users', {})
             if str(user_id) not in pending_users:
+                # Проверяем, может пользователь уже одобрен
+                if str(user_id) in group_data.get('members', {}):
+                    await query.edit_message_text(f"ℹ️ Пользователь уже одобрен в этой группе.")
+                    return
                 await query.edit_message_text("❌ Ошибка: пользователь не найден в ожидании.")
                 return
             
@@ -211,7 +215,7 @@ class GroupManager:
             await query.edit_message_text(f"❌ Ошибка при разрешении пользователя: {str(e)}")
     
     async def _reject_user(self, group_id, user_id, context: ContextTypes.DEFAULT_TYPE, query):
-        """Запрещает пользователю доступ к группе"""
+        """Запрещает пользователю доступ к группе и удаляет все его данные"""
         try:
             print(f"🔄 Rejecting user {user_id} from group {group_id}")
             
@@ -227,14 +231,17 @@ class GroupManager:
             if str(user_id) in pending_users:
                 user_name = pending_users[str(user_id)].get('first_name', 'Пользователь')
             
-            # Удаляем пользователя из группы
+            # 1. Удаляем пользователя из группы
             await self._remove_user_from_group(group_id, user_id, context)
+            
+            # 2. Полностью очищаем все данные пользователя
+            await self._cleanup_all_user_data(group_id, user_id)
             
             # Обновляем сообщение администратора
             new_text = f"❌ Пользователь {user_name} удален из группы '{group_data.get('title', group_id)}'"
             await query.edit_message_text(new_text)
             
-            print(f"❌ User {user_id} rejected by admin in group {group_id}")
+            print(f"❌ User {user_id} rejected and all data cleaned up from group {group_id}")
             
         except Exception as e:
             print(f"❌ Error rejecting user: {e}")
@@ -250,35 +257,53 @@ class GroupManager:
             await asyncio.sleep(1)
             await context.bot.unban_chat_member(group_id, user_id)
             
-            # Удаляем из базы данных
-            self._cleanup_user_data(group_id, user_id)
-            
             print(f"✅ User {user_id} removed from group {group_id}")
             
         except Exception as e:
-            print(f"❌ Error removing user {user_id}: {e}")
+            print(f"❌ Error removing user {user_id} from group: {e}")
     
-    def _cleanup_user_data(self, group_id, user_id):
-        """Очищает данные пользователя"""
+    async def _cleanup_all_user_data(self, group_id, user_id):
+        """Полностью очищает ВСЕ данные пользователя из системы"""
         try:
-            # Удаляем из ожидания в группе
+            print(f"🧹 Cleaning up ALL data for user {user_id}")
+            
+            # 1. Удаляем пользователя из данных группы
             group_data = self.db.get_group(group_id)
             if group_data:
                 # Удаляем из ожидания
                 if str(user_id) in group_data.get('pending_users', {}):
                     del group_data['pending_users'][str(user_id)]
+                    print(f"  🗑️ Removed from pending users of group {group_id}")
                 
                 # Удаляем из участников (если был одобрен)
                 if str(user_id) in group_data.get('members', {}):
                     del group_data['members'][str(user_id)]
+                    print(f"  🗑️ Removed from members of group {group_id}")
                 
-                # Сохраняем изменения
-                self.db.save_group(group_id, group_data)
+                # Сохраняем изменения в группе
+                if self.db.save_group(group_id, group_data):
+                    print(f"  💾 Saved updated group data for {group_id}")
             
-            print(f"🗑️ Cleaned up data for user {user_id}")
+            # 2. Удаляем файл пользователя из пользовательской базы (если существует)
+            try:
+                import os
+                from config import BOT_SETTINGS
+                
+                users_dir = BOT_SETTINGS['users_directory']
+                user_file = os.path.join(users_dir, f"{user_id}.json")
+                
+                if os.path.exists(user_file):
+                    os.remove(user_file)
+                    print(f"  🗑️ Deleted user file: {user_file}")
+                else:
+                    print(f"  ℹ️ User file not found: {user_file}")
+            except Exception as e:
+                print(f"  ⚠️ Could not delete user file: {e}")
+            
+            print(f"✅ All data for user {user_id} has been cleaned up")
             
         except Exception as e:
-            print(f"❌ Error cleaning up user data {user_id}: {e}")
+            print(f"❌ Error cleaning up all user data {user_id}: {e}")
     
     async def _restrict_member_permissions(self, group_id, user_id, context: ContextTypes.DEFAULT_TYPE):
         """Ограничивает права пользователя - нельзя отправлять сообщения"""

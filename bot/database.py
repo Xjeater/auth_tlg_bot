@@ -112,3 +112,16 @@ class JSONDatabase:
         if not group_data:
             return {}
         return group_data.get('members', {})
+
+    def delete_user_file(self, user_id):
+        """Удаляет файл пользователя"""
+        try:
+            user_file = os.path.join(self.users_dir, f"{user_id}.json")
+            if os.path.exists(user_file):
+                os.remove(user_file)
+                print(f"🗑️ User file {user_id}.json deleted from database")
+                return True
+            return False
+        except Exception as e:
+            print(f"❌ Error deleting user file {user_id}: {e}")
+            return False
