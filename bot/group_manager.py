@@ -232,7 +232,7 @@ class GroupManager:
     async def _reject_user(self, group_id, user_id, context: ContextTypes.DEFAULT_TYPE, query):
         """Запрещает пользователю доступ к группе и удаляет все его данные"""
         try:
-            print(f"🔄 Rejecting user {user_id} from group {group_id}")
+            print(f"🔄 START: Rejecting user {user_id} from group {group_id}")
             
             # Получаем имя пользователя перед удалением
             group_data = self.db.get_group(group_id)
@@ -241,24 +241,34 @@ class GroupManager:
                 pending_users = group_data.get('pending_users', {})
                 if str(user_id) in pending_users:
                     user_name = pending_users[str(user_id)].get('first_name', 'Пользователь')
+                elif str(user_id) in group_data.get('members', {}):
+                    user_name = group_data['members'][str(user_id)].get('first_name', 'Пользователь')
             
             # 1. Удаляем пользователя из группы
-            await self._remove_user_from_group(group_id, user_id, context)
+            try:
+                await self._remove_user_from_group(group_id, user_id, context)
+            except Exception as e:
+                print(f"⚠️ Error removing from group (continuing): {e}")
             
             # 2. Полностью очищаем все данные пользователя из файла группы
             success = await self._cleanup_all_user_data(group_id, user_id)
             
             if success:
                 # Обновляем сообщение администратора
-                new_text = f"❌ Пользователь {user_name} удален из группы '{group_data.get('title', group_id) if group_data else group_id}'"
+                group_title = group_data.get('title', group_id) if group_data else group_id
+                new_text = f"❌ Пользователь {user_name} удален из группы '{group_title}'"
                 await query.edit_message_text(new_text)
                 
-                print(f"❌ User {user_id} rejected and all data cleaned up from group {group_id}")
+                print(f"✅ COMPLETE: User {user_id} rejected and all data cleaned up from group {group_id}")
             else:
-                await query.edit_message_text(f"⚠️ Пользователь удален из группы, но произошла ошибка при очистке данных.")
+                error_text = f"⚠️ Пользователь удален из группы, но произошла ошибка при очистке данных."
+                await query.edit_message_text(error_text)
+                print(f"⚠️ Partial cleanup for user {user_id}")
             
         except Exception as e:
-            print(f"❌ Error rejecting user: {e}")
+            print(f"❌ ERROR rejecting user: {e}")
+            import traceback
+            traceback.print_exc()
             await query.edit_message_text(f"❌ Ошибка при запрете пользователя: {str(e)}")
     
     async def _remove_user_from_group(self, group_id, user_id, context: ContextTypes.DEFAULT_TYPE):
@@ -279,22 +289,26 @@ class GroupManager:
     async def _cleanup_all_user_data(self, group_id, user_id):
         """Полностью очищает ВСЕ данные пользователя из системы"""
         try:
-            print(f"🧹 Cleaning up ALL data for user {user_id} from group {group_id}")
+            print(f"🧹 START: Cleaning up ALL data for user {user_id} from group {group_id}")
             
-            # 1. Загружаем свежие данные группы
-            group_data = self.db.get_group(group_id)
-            if not group_data:
-                print(f"  ⚠️ Group {group_id} not found")
+            # 1. Удаляем пользователя из всех списков группы
+            success = self.db.remove_user_from_all_lists(group_id, user_id)
+            
+            if not success:
+                print(f"❌ Failed to remove user {user_id} from group {group_id} lists")
                 return False
             
-            user_id_str = str(user_id)
-            data_changed = False
+            # 2. Удаляем файл пользователя (если существует)
+            self.db.delete_user_file(user_id)
             
-            # 2. Удаляем из ожидания
-            if user_id_str in group_data.get('pending_users', {}):
-                del group_data['pending_users'][user_id_str]
-                data_changed = True
-                print(f"  🗑️ Removed from pending_users of group {group_id}")
+            print(f"✅ COMPLETE: All data for user {user_id} cleaned up from group {group_id}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ ERROR cleaning up all user data {user_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
             
             # 3. Удаляем из участников (если был одобрен)
             if user_id_str in group_data.get('members', {}):
