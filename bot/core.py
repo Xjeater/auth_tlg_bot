@@ -28,6 +28,12 @@ class TelegramAuthBot:
             ChatMemberHandler.CHAT_MEMBER
         ))
         
+        # Обработчик сообщений от пользователей - удаляет сообщения от неодобренных
+        self.application.add_handler(MessageHandler(
+            filters.ALL & filters.ChatType.GROUPS,
+            self._handle_group_message
+        ))
+        
         # Обработчик callback запросов (кнопки разрешить/запретить)
         self.application.add_handler(CallbackQueryHandler(
             self._handle_callback_query,
@@ -50,6 +56,45 @@ class TelegramAuthBot:
         """Проверяет, является ли пользователь администратором"""
         return user_id in ADMIN_IDS
     
+    async def _handle_group_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обрабатывает сообщения в группах - удаляет от неодобренных пользователей"""
+        if not update.message:
+            return
+        
+        chat = update.effective_chat
+        user = update.effective_user
+        
+        # Пропускаем сообщения от бота
+        if user.id == context.bot.id:
+            return
+        
+        # Пропускаем сообщения не из групп
+        if chat.type not in ['group', 'supergroup']:
+            return
+        
+        # Проверяем, одобрен ли пользователь
+        is_approved = self.db.is_user_approved(chat.id, user.id)
+        
+        if not is_approved:
+            # Пользователь не одобрен - удаляем сообщение
+            try:
+                await update.message.delete()
+                print(f"🗑️ Deleted message from unapproved user {user.id} in group {chat.id}")
+                
+                # Предупреждаем пользователя (если возможно)
+                try:
+                    await context.bot.send_message(
+                        chat_id=user.id,
+                        text=f"⛔ Ваше сообщение в группе '{chat.title}' было удалено.\n"
+                             f"Вы еще не получили доступ к отправке сообщений.\n"
+                             f"Ожидайте одобрения администратора."
+                    )
+                except:
+                    pass  # Не можем отправить ЛС - пропускаем
+                    
+            except Exception as e:
+                print(f"❌ Could not delete message from user {user.id}: {e}")
+    
     async def _handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик callback запросов"""
         await self.group_manager.handle_callback_query(update, context)
@@ -64,9 +109,12 @@ class TelegramAuthBot:
 2. Ожидайте подтверждения администратора
 3. После подтверждения получите доступ к группе
 
-Команды:
-/help - Показать эту справку
-/status - Проверить статус в группах
+📋 Ваши группы покажутся по команде /status
+
+⚠️ Важно:
+• Пока администратор не одобрит вас - вы не сможете отправлять сообщения
+• Все ваши сообщения будут автоматически удаляться
+• Ожидайте уведомления от бота об одобрении
         """
         await update.message.reply_text(help_text)
     
@@ -111,12 +159,18 @@ class TelegramAuthBot:
 • Автоматически получаете уведомления о новых пользователях
 • Используйте кнопки "✅ Разрешить" и "❌ Запретить"
 • Пользователи не смогут писать пока не будут одобрены
+• Сообщения неодобренных пользователей автоматически удаляются
 
-⚙️ Права бота в группах:
-• Ban users
-• Delete messages  
-• Restrict members
-• Invite users via link
+⚙️ Требуемые права бота в группах:
+✅ Ban users (банить пользователей)
+✅ Delete messages (удалять сообщения)  
+✅ Restrict members (ограничивать участников)
+✅ Invite users via link (приглашать по ссылке)
+
+📊 Мониторинг:
+• Все новые участники автоматически ограничиваются
+• Админы получают уведомления в реальном времени
+• История решений сохраняется в базе данных
         """
         
         await update.message.reply_text(admin_help_text)
@@ -178,7 +232,12 @@ class TelegramAuthBot:
             f"⚡ Команды админа:\n"
             f"   • /admin_status - статус групп\n"
             f"   • /admin_help - справка\n"
-            f"   • /stats - эта статистика"
+            f"   • /stats - эта статистика\n\n"
+            
+            f"💡 Система работает:\n"
+            f"   • Автоограничение новых участников\n"
+            f"   • Удаление сообщений неодобренных\n"
+            f"   • Уведомления админам в реальном времени"
         )
         
         await update.message.reply_text(stats_text)

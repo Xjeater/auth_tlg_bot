@@ -80,11 +80,37 @@ class GroupManager:
         # Добавляем в ожидание
         self.db.add_pending_user(chat.id, user.id, user_data)
         
-        # Ограничиваем права на отправку сообщений
-        await self._restrict_member_permissions(chat.id, user.id, context)
+        # 1. Сначала сразу ограничиваем права
+        try:
+            await self._restrict_member_permissions(chat.id, user.id, context)
+            print(f"🔒 Immediately restricted user {user.id}")
+        except Exception as e:
+            print(f"⚠️ Could not restrict immediately: {e}")
         
-        # Уведомляем администратора
+        # 2. Затем через небольшую задержку еще раз ограничиваем (на случай, если первое не сработало)
+        asyncio.create_task(self._delayed_restriction(chat.id, user.id, context))
+        
+        # 3. Уведомляем администратора
         await self._notify_admin_about_new_user(chat.id, user_data, context)
+        
+        # 4. Отправляем пользователю сообщение, что нужно ждать одобрения
+        try:
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=f"👋 Привет, {user.first_name}! Ты присоединился к группе '{chat.title}'.\n\n"
+                     f"📝 Твоя заявка отправлена администратору. Пожалуйста, ожидай одобрения."
+            )
+        except Exception as e:
+            print(f"⚠️ Could not send DM to user {user.id}: {e}")
+    
+    async def _delayed_restriction(self, group_id, user_id, context):
+        """Повторное ограничение прав через задержку"""
+        await asyncio.sleep(2)  # Ждем 2 секунды
+        try:
+            await self._restrict_member_permissions(group_id, user_id, context)
+            print(f"🔒 Delayed restriction applied for user {user_id}")
+        except Exception as e:
+            print(f"❌ Failed delayed restriction for user {user_id}: {e}")
     
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обрабатывает callback от кнопок разрешить/запретить"""
@@ -166,14 +192,14 @@ class GroupManager:
                     group_title = group_data.get('title', 'группе')
                     await context.bot.send_message(
                         chat_id=user_id,
-                        text=f"✅ Администратор разрешил вам отправлять сообщения в группе '{group_title}'!"
+                        text=f"✅ Администратор одобрил вашу заявку! Теперь вы можете писать в группе '{group_title}'."
                     )
                     print(f"📨 Notified user {user_id} about approval")
                 except Exception as e:
                     print(f"Error notifying user {user_id}: {e}")
                 
                 # Обновляем сообщение администратора
-                new_text = f"✅ Пользователь {user_data['first_name']} теперь может писать в группе '{group_data.get('title', group_id)}'"
+                new_text = f"✅ Пользователь {user_data['first_name']} одобрен в группе '{group_data.get('title', group_id)}'"
                 await query.edit_message_text(new_text)
                 
                 print(f"✅ User {user_id} approved by admin in group {group_id}")
@@ -257,40 +283,60 @@ class GroupManager:
     async def _restrict_member_permissions(self, group_id, user_id, context: ContextTypes.DEFAULT_TYPE):
         """Ограничивает права пользователя - нельзя отправлять сообщения"""
         try:
+            # Более строгое ограничение прав
+            permissions = {
+                'can_send_messages': False,
+                'can_send_media_messages': False,
+                'can_send_other_messages': False,
+                'can_add_web_page_previews': False,
+                'can_send_polls': False,
+                'can_invite_users': False,
+                'can_pin_messages': False,
+                'can_change_info': False,
+                'can_send_audios': False,
+                'can_send_documents': False,
+                'can_send_photos': False,
+                'can_send_videos': False,
+                'can_send_video_notes': False,
+                'can_send_voice_notes': False
+            }
+            
             await context.bot.restrict_chat_member(
                 chat_id=group_id,
                 user_id=user_id,
-                permissions={
-                    'can_send_messages': False,
-                    'can_send_media_messages': False,
-                    'can_send_other_messages': False,
-                    'can_add_web_page_previews': False,
-                    'can_send_polls': False,
-                    'can_invite_users': False,
-                    'can_pin_messages': False,
-                    'can_change_info': False
-                }
+                permissions=permissions,
+                until_date=int(datetime.now().timestamp()) + 86400  # на 24 часа
             )
             print(f"🔒 Restricted user {user_id} in group {group_id}")
         except Exception as e:
             print(f"❌ Error restricting user {user_id}: {e}")
+            raise
     
     async def _grant_member_permissions(self, group_id, user_id, context: ContextTypes.DEFAULT_TYPE):
         """Дает права на отправку сообщений пользователю"""
         try:
+            # Полные права на отправку сообщений
+            permissions = {
+                'can_send_messages': True,
+                'can_send_media_messages': True,
+                'can_send_other_messages': True,
+                'can_add_web_page_previews': True,
+                'can_send_polls': True,
+                'can_invite_users': True,
+                'can_pin_messages': False,
+                'can_change_info': False,
+                'can_send_audios': True,
+                'can_send_documents': True,
+                'can_send_photos': True,
+                'can_send_videos': True,
+                'can_send_video_notes': True,
+                'can_send_voice_notes': True
+            }
+            
             await context.bot.restrict_chat_member(
                 chat_id=group_id,
                 user_id=user_id,
-                permissions={
-                    'can_send_messages': True,
-                    'can_send_media_messages': True,
-                    'can_send_other_messages': True,
-                    'can_add_web_page_previews': True,
-                    'can_send_polls': True,
-                    'can_invite_users': True,
-                    'can_pin_messages': False,
-                    'can_change_info': False
-                }
+                permissions=permissions
             )
             print(f"🔓 Granted permissions to user {user_id} in group {group_id}")
         except Exception as e:
@@ -311,7 +357,8 @@ class GroupManager:
             f"**Username:** @{user_data.get('username', 'нет')}\n"
             f"**Группа:** {group_data.get('title', group_id)}\n"
             f"**ID группы:** {group_id}\n"
-            f"**ID пользователя:** {user_data['user_id']}"
+            f"**ID пользователя:** {user_data['user_id']}\n\n"
+            f"*Пользователь сейчас не может писать в группе. Разрешить доступ?*"
         )
         
         for admin_id in ADMIN_IDS:
