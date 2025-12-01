@@ -38,7 +38,13 @@ class TelegramAuthBot:
             filters.StatusUpdate.NEW_CHAT_MEMBERS,
             self.group_manager.handle_new_chat_member
         ))
-        
+
+        # Добавьте этот обработчик для отслеживания самостоятельного присоединения
+        self.application.add_handler(ChatMemberHandler(
+            self.group_manager.handle_chat_member_update,
+            ChatMemberHandler.CHAT_MEMBER
+        ))
+                
         # Обработчик callback запросов (кнопки подтверждения)
         self.application.add_handler(CallbackQueryHandler(
             self._handle_callback_query,

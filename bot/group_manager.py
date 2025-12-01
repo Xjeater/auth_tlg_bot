@@ -11,8 +11,31 @@ class GroupManager:
         self.auth_manager = auth_manager
         self.pending_tasks = {}  # Словарь для отслеживания задач таймаута
     
+    async def handle_chat_member_update(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обрабатывает обновления статуса участников чата"""
+        if not update.chat_member:
+            return
+        
+        chat = update.chat_member.chat
+        new_status = update.chat_member.new_chat_member.status
+        old_status = update.chat_member.old_chat_member.status
+        user = update.chat_member.new_chat_member.user
+        
+        # Пропускаем обновления, не связанные с присоединением к группе
+        if chat.type not in ['group', 'supergroup']:
+            return
+        
+        # Пропускаем бота
+        if user.id == context.bot.id:
+            return
+        
+        # Проверяем, присоединился ли пользователь к группе
+        # (новый статус: 'member', старый статус: 'left' или 'kicked')
+        if new_status == 'member' and old_status in ['left', 'kicked']:
+            await self._process_new_member(chat, user, context)
+    
     async def handle_new_chat_member(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обрабатывает новых участников чата"""
+        """Обрабатывает новых участников чата (для обратной совместимости)"""
         if not update.message or not update.message.new_chat_members:
             return
         
@@ -20,47 +43,68 @@ class GroupManager:
         if chat.type not in ['group', 'supergroup']:
             return
         
-        # Создаем/получаем данные группы
-        group_data = self.db.get_group(chat.id)
-        if not group_data:
-            self.db.create_group(chat.id, chat.title)
-        
         for new_member in update.message.new_chat_members:
             # Пропускаем бота
             if new_member.id == context.bot.id:
                 continue
             
-            user_data = {
-                'user_id': new_member.id,
-                'first_name': new_member.first_name,
-                'last_name': new_member.last_name,
-                'username': new_member.username,
-                'joined_at': datetime.now().isoformat(),
-                'phone_verified': False,
-                'awaiting_admin_approval': False
-            }
+            await self._process_new_member(chat, new_member, context)
+    
+    async def _process_new_member(self, chat, user, context: ContextTypes.DEFAULT_TYPE):
+        """Обрабатывает нового участника (общая функция для всех случаев присоединения)"""
+        # Создаем/получаем данные группы
+        group_data = self.db.get_group(chat.id)
+        if not group_data:
+            self.db.create_group(chat.id, chat.title)
+        
+        user_data = {
+            'user_id': user.id,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'username': user.username,
+            'joined_at': datetime.now().isoformat(),
+            'phone_verified': False,
+            'awaiting_admin_approval': False,
+            'join_method': 'unknown'  # Можно добавить логику определения метода присоединения
+        }
+        
+        print(f"👤 New member {user.id} ({user.first_name}) joined group {chat.id}")
+        
+        # Проверяем, не находится ли пользователь уже в группе
+        existing_members = self.db.get_group_members(chat.id)
+        if str(user.id) in existing_members:
+            print(f"ℹ️ User {user.id} is already a member of group {chat.id}")
+            return
+        
+        # Проверяем, не находится ли пользователь уже в ожидании
+        existing_pending = self.db.get_pending_users(chat.id)
+        if str(user.id) in existing_pending:
+            print(f"ℹ️ User {user.id} is already pending in group {chat.id}")
+            return
+        
+        # Добавляем в ожидание (независимо от того, авторизован ли пользователь)
+        self.db.add_pending_user(chat.id, user.id, user_data)
+        await self._restrict_member_permissions(chat.id, user.id, context)
+        
+        # ОБЯЗАТЕЛЬНО отправляем инструкции по авторизации
+        await self._send_auth_instructions(chat.id, user, context)
+        
+        # Если пользователь уже авторизован, сразу уведомляем администратора
+        if self.db.user_has_phone_verification(user.id):
+            user_full_data = self.db.get_user(user.id)
+            if user_full_data:
+                await self._notify_admins_about_verified_user(chat.id, user_full_data, context)
+        else:
+            # Запускаем таймер удаления только для неавторизованных
+            task_key = f"{chat.id}_{user.id}"
+            # Отменяем предыдущую задачу, если она существует
+            if task_key in self.pending_tasks:
+                self.pending_tasks[task_key].cancel()
             
-            print(f"👤 New member {new_member.id} ({new_member.first_name}) joined group {chat.id}")
-            
-            # Добавляем в ожидание (независимо от того, авторизован ли пользователь)
-            self.db.add_pending_user(chat.id, new_member.id, user_data)
-            await self._restrict_member_permissions(chat.id, new_member.id, context)
-            
-            # ОБЯЗАТЕЛЬНО отправляем инструкции по авторизации
-            await self._send_auth_instructions(chat.id, new_member, context)
-            
-            # Если пользователь уже авторизован, сразу уведомляем администратора
-            if self.db.user_has_phone_verification(new_member.id):
-                user_full_data = self.db.get_user(new_member.id)
-                if user_full_data:
-                    await self._notify_admins_about_verified_user(chat.id, user_full_data, context)
-            else:
-                # Запускаем таймер удаления только для неавторизованных
-                task_key = f"{chat.id}_{new_member.id}"
-                self.pending_tasks[task_key] = asyncio.create_task(
-                    self._schedule_user_removal(chat.id, new_member.id, context)
-                )
-                print(f"⏰ Started timeout task for user {new_member.id} in group {chat.id}")
+            self.pending_tasks[task_key] = asyncio.create_task(
+                self._schedule_user_removal(chat.id, user.id, context)
+            )
+            print(f"⏰ Started timeout task for user {user.id} in group {chat.id}")
     
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обрабатывает callback от кнопок подтверждения"""
