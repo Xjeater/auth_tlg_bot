@@ -21,14 +21,8 @@ class TelegramAuthBot:
             filters.StatusUpdate.NEW_CHAT_MEMBERS,
             self.group_manager.handle_new_chat_member
         ))
-
-        # Обработчик выхода пользователей из группы
-        self.application.add_handler(MessageHandler(
-            filters.StatusUpdate.LEFT_CHAT_MEMBER,
-            self.group_manager.handle_user_left
-        ))
-                
-        # Обработчик для отслеживания самостоятельного присоединения по ссылке
+        
+        # Обработчик для отслеживания самостоятельного присоединения по ссылке И выхода из группы
         self.application.add_handler(ChatMemberHandler(
             self.group_manager.handle_chat_member_update,
             ChatMemberHandler.CHAT_MEMBER
