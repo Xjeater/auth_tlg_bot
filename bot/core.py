@@ -54,7 +54,15 @@ class TelegramAuthBot:
     
     def _is_admin(self, user_id):
         """Проверяет, является ли пользователь администратором"""
-        return user_id in ADMIN_IDS
+        # Проверяем что ADMIN_IDS это список или кортеж
+        if isinstance(ADMIN_IDS, (list, tuple)):
+            return user_id in ADMIN_IDS
+        # Если это одно число (int)
+        elif isinstance(ADMIN_IDS, int):
+            return user_id == ADMIN_IDS
+        else:
+            print(f"⚠️ Warning: ADMIN_IDS has unexpected type: {type(ADMIN_IDS)}")
+            return False
     
     async def _handle_group_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обрабатывает сообщения в группах - удаляет от неодобренных пользователей"""
@@ -245,6 +253,8 @@ class TelegramAuthBot:
     async def _error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик ошибок"""
         print(f"Exception while handling an update: {context.error}")
+        import traceback
+        traceback.print_exc()  # Добавляем трейсбек для отладки
     
     def run(self):
         """Запускает бота"""
