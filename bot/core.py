@@ -21,7 +21,13 @@ class TelegramAuthBot:
             filters.StatusUpdate.NEW_CHAT_MEMBERS,
             self.group_manager.handle_new_chat_member
         ))
-        
+
+        # Обработчик изменения названия группы
+        self.application.add_handler(MessageHandler(
+            filters.StatusUpdate.NEW_CHAT_TITLE,
+            self.group_manager.handle_group_title_update
+        ))
+
         # Обработчик для отслеживания самостоятельного присоединения по ссылке И выхода из группы
         self.application.add_handler(ChatMemberHandler(
             self.group_manager.handle_chat_member_update,

@@ -67,9 +67,32 @@ class JSONDatabase:
         else:
             print(f"❌ FAILED to save group {group_id}")
         return result
-    
+
+    def update_group_title(self, group_id, new_title):
+        """Обновляет название группы"""
+        group_data = self.get_group(group_id)
+        if not group_data:
+            print(f"❌ Group {group_id} not found for title update")
+            return False
+        
+        old_title = group_data.get('title', 'Unknown')
+        group_data['title'] = new_title
+        
+        print(f"🔄 Updating group {group_id} title: '{old_title}' -> '{new_title}'")
+        return self.save_group(group_id, group_data)
+
     def create_group(self, group_id, group_title):
         """Создает новую группу"""
+        print(f"🏗️ Creating new group {group_id} with title '{group_title}'")
+        
+        # Если группа уже существует, обновляем название
+        existing_data = self.get_group(group_id)
+        if existing_data:
+            print(f"ℹ️ Group {group_id} already exists, updating title")
+            existing_data['title'] = group_title
+            return self.save_group(group_id, existing_data)
+        
+        # Создаем новую группу
         group_data = {
             'group_id': str(group_id),
             'title': group_title,
@@ -77,7 +100,14 @@ class JSONDatabase:
             'members': {},
             'pending_users': {}
         }
-        return self.save_group(group_id, group_data)
+        
+        success = self.save_group(group_id, group_data)
+        if success:
+            print(f"✅ Created group {group_id} with title '{group_title}'")
+        else:
+            print(f"❌ Failed to create group {group_id}")
+        
+        return success
     
     # Удаление пользователя из группы - ГЛАВНЫЙ МЕТОД
     def delete_user_from_group(self, group_id, user_id):
@@ -123,7 +153,12 @@ class JSONDatabase:
     # Остальные методы (упрощенные)
     def add_pending_user(self, group_id, user_id, user_data):
         """Добавляет пользователя в ожидание"""
-        group_data = self.get_group(group_id) or self.create_group(group_id, "Unknown")
+        # Получаем или создаем группу
+        group_data = self.get_group(group_id)
+        if not group_data:
+            # Не создаем группу здесь - это должно быть сделано в _process_new_member
+            print(f"❌ Group {group_id} not found, cannot add pending user")
+            return False
         
         user_id_str = str(user_id)
         if 'pending_users' not in group_data:

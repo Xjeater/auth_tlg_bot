@@ -56,6 +56,17 @@ class GroupManager:
     
     async def _process_new_member(self, chat, user, context: ContextTypes.DEFAULT_TYPE):
         """Обрабатывает нового участника"""
+        # Создаем/получаем данные группы с правильным названием
+        group_data = self.db.get_group(chat.id)
+        if not group_data:
+            # Создаем группу с реальным названием
+            if self.db.create_group(chat.id, chat.title):
+                print(f"✅ Created new group {chat.id} with title '{chat.title}'")
+                group_data = self.db.get_group(chat.id)
+            else:
+                print(f"❌ Failed to create group {chat.id}")
+                return
+        
         # Проверяем, не находится ли пользователь уже в группе (одобрен)
         if self.db.is_user_approved(chat.id, user.id):
             print(f"ℹ️ User {user.id} is already approved in group {chat.id}")
@@ -76,7 +87,7 @@ class GroupManager:
             'joined_at': datetime.now().isoformat()
         }
         
-        print(f"👤 New member {user.id} ({user.first_name}) joined group {chat.id}")
+        print(f"👤 New member {user.id} ({user.first_name}) joined group {chat.id} ({chat.title})")
         
         # Добавляем в ожидание
         if self.db.add_pending_user(chat.id, user.id, user_data):
@@ -382,3 +393,16 @@ class GroupManager:
                 
             except Exception as e:
                 print(f"❌ Error notifying admin {admin_id}: {e}")
+
+    async def handle_group_title_update(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обрабатывает изменение названия группы"""
+        if not update.message or not update.message.new_chat_title:
+            return
+        
+        chat = update.effective_chat
+        new_title = update.message.new_chat_title
+        
+        print(f"🏷️ Group title changed: {chat.id} -> '{new_title}'")
+        
+        # Обновляем название в базе данных
+        self.db.update_group_title(chat.id, new_title)
