@@ -32,11 +32,32 @@ class GroupManager:
         if new_status == 'member' and old_status in ['left', 'kicked']:
             await self._process_new_member(chat, user, context)
         
-        # Проверяем, вышел ли пользователь из группы
-        elif new_status in ['left', 'kicked'] and old_status == 'member':
+        # Проверяем, вышел ли пользователь из группы (ВСЕ случаи)
+        elif new_status in ['left', 'kicked']:
             print(f"👋 User {user.id} left/kicked from group {chat.id}")
-            # Удаляем данные пользователя из этой группы
+            # Удаляем данные пользователя из этой группы (и из pending, и из members)
             self.db.delete_user_from_group(chat.id, user.id)
+    
+    async def handle_admin_removal(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обрабатывает ручное удаление пользователя администратором"""
+        if not update.message or not update.message.left_chat_member:
+            return
+        
+        chat = update.effective_chat
+        user = update.message.left_chat_member
+        
+        # Пропускаем не группы
+        if chat.type not in ['group', 'supergroup']:
+            return
+        
+        # Пропускаем бота
+        if user.id == context.bot.id:
+            return
+        
+        print(f"👮 Admin removed user {user.id} from group {chat.id}")
+        
+        # Удаляем данные пользователя из файла группы
+        self.db.delete_user_from_group(chat.id, user.id)
     
     async def handle_new_chat_member(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обрабатывает новых участников чата (для обратной совместимости)"""

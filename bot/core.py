@@ -28,6 +28,12 @@ class TelegramAuthBot:
             self.group_manager.handle_group_title_update
         ))
 
+        # Обработчик для ручного удаления пользователя администратором
+        self.application.add_handler(MessageHandler(
+            filters.StatusUpdate.LEFT_CHAT_MEMBER,
+            self.group_manager.handle_admin_ban
+        ))
+
         # Обработчик для отслеживания самостоятельного присоединения по ссылке И выхода из группы
         self.application.add_handler(ChatMemberHandler(
             self.group_manager.handle_chat_member_update,
