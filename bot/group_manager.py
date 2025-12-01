@@ -18,7 +18,7 @@ class GroupManager:
         old_status = update.chat_member.old_chat_member.status
         user = update.chat_member.new_chat_member.user
         
-        # Пропускаем обновления, не связанные с присоединением к группе
+        # Пропускаем обновления, не связанные с группами
         if chat.type not in ['group', 'supergroup']:
             return
         
@@ -26,10 +26,17 @@ class GroupManager:
         if user.id == context.bot.id:
             return
         
+        print(f"👤 User {user.id} status changed in group {chat.id}: {old_status} -> {new_status}")
+        
         # Проверяем, присоединился ли пользователь к группе
-        # (новый статус: 'member', старый статус: 'left' или 'kicked')
         if new_status == 'member' and old_status in ['left', 'kicked']:
             await self._process_new_member(chat, user, context)
+        
+        # Проверяем, вышел ли пользователь из группы
+        elif new_status in ['left', 'kicked'] and old_status == 'member':
+            print(f"👋 User {user.id} left/kicked from group {chat.id}")
+            # Очищаем данные пользователя из этой группы
+            await self._cleanup_all_user_data(chat.id, user.id)
     
     async def handle_new_chat_member(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обрабатывает новых участников чата (для обратной совместимости)"""
@@ -78,7 +85,11 @@ class GroupManager:
         print(f"👤 New member {user.id} ({user.first_name}) joined group {chat.id}")
         
         # Добавляем в ожидание
-        self.db.add_pending_user(chat.id, user.id, user_data)
+        if self.db.add_pending_user(chat.id, user.id, user_data):
+            print(f"✅ User {user.id} added to pending_users")
+        else:
+            print(f"❌ Failed to add user {user.id} to pending_users")
+            return
         
         # 1. Сначала сразу ограничиваем права
         try:
@@ -163,15 +174,17 @@ class GroupManager:
             
             # Получаем данные пользователя из ожидания
             pending_users = group_data.get('pending_users', {})
-            if str(user_id) not in pending_users:
+            user_id_str = str(user_id)
+            
+            if user_id_str not in pending_users:
                 # Проверяем, может пользователь уже одобрен
-                if str(user_id) in group_data.get('members', {}):
+                if user_id_str in group_data.get('members', {}):
                     await query.edit_message_text(f"ℹ️ Пользователь уже одобрен в этой группе.")
                     return
                 await query.edit_message_text("❌ Ошибка: пользователь не найден в ожидании.")
                 return
             
-            user_data = pending_users[str(user_id)]
+            user_data = pending_users[user_id_str]
             
             # Добавляем пользователя как одобренного
             approval_data = {
@@ -181,13 +194,15 @@ class GroupManager:
             }
             
             # Сохраняем как одобренного
-            group_data['members'][str(user_id)] = approval_data
+            group_data['members'][user_id_str] = approval_data
             
             # Удаляем из ожидания
-            del group_data['pending_users'][str(user_id)]
+            del group_data['pending_users'][user_id_str]
             
             # Сохраняем изменения
             if self.db.save_group(group_id, group_data):
+                print(f"✅ User {user_id} moved from pending to members")
+                
                 # Даем права на отправку сообщений
                 await self._grant_member_permissions(group_id, user_id, context)
                 
@@ -208,7 +223,7 @@ class GroupManager:
                 
                 print(f"✅ User {user_id} approved by admin in group {group_id}")
             else:
-                await query.edit_message_text("❌ Ошибка при сохранении данных.")
+                await query.edit_message_text("❌ Ошибка при сохранении данных в файл группы.")
                 
         except Exception as e:
             print(f"❌ Error approving user: {e}")
@@ -219,29 +234,28 @@ class GroupManager:
         try:
             print(f"🔄 Rejecting user {user_id} from group {group_id}")
             
+            # Получаем имя пользователя перед удалением
             group_data = self.db.get_group(group_id)
-            
-            if not group_data:
-                await query.edit_message_text("❌ Ошибка: группа не найдена.")
-                return
-            
-            # Получаем данные пользователя
-            pending_users = group_data.get('pending_users', {})
             user_name = "Пользователь"
-            if str(user_id) in pending_users:
-                user_name = pending_users[str(user_id)].get('first_name', 'Пользователь')
+            if group_data:
+                pending_users = group_data.get('pending_users', {})
+                if str(user_id) in pending_users:
+                    user_name = pending_users[str(user_id)].get('first_name', 'Пользователь')
             
             # 1. Удаляем пользователя из группы
             await self._remove_user_from_group(group_id, user_id, context)
             
-            # 2. Полностью очищаем все данные пользователя
-            await self._cleanup_all_user_data(group_id, user_id)
+            # 2. Полностью очищаем все данные пользователя из файла группы
+            success = await self._cleanup_all_user_data(group_id, user_id)
             
-            # Обновляем сообщение администратора
-            new_text = f"❌ Пользователь {user_name} удален из группы '{group_data.get('title', group_id)}'"
-            await query.edit_message_text(new_text)
-            
-            print(f"❌ User {user_id} rejected and all data cleaned up from group {group_id}")
+            if success:
+                # Обновляем сообщение администратора
+                new_text = f"❌ Пользователь {user_name} удален из группы '{group_data.get('title', group_id) if group_data else group_id}'"
+                await query.edit_message_text(new_text)
+                
+                print(f"❌ User {user_id} rejected and all data cleaned up from group {group_id}")
+            else:
+                await query.edit_message_text(f"⚠️ Пользователь удален из группы, но произошла ошибка при очистке данных.")
             
         except Exception as e:
             print(f"❌ Error rejecting user: {e}")
@@ -265,26 +279,38 @@ class GroupManager:
     async def _cleanup_all_user_data(self, group_id, user_id):
         """Полностью очищает ВСЕ данные пользователя из системы"""
         try:
-            print(f"🧹 Cleaning up ALL data for user {user_id}")
+            print(f"🧹 Cleaning up ALL data for user {user_id} from group {group_id}")
             
-            # 1. Удаляем пользователя из данных группы
+            # 1. Загружаем свежие данные группы
             group_data = self.db.get_group(group_id)
-            if group_data:
-                # Удаляем из ожидания
-                if str(user_id) in group_data.get('pending_users', {}):
-                    del group_data['pending_users'][str(user_id)]
-                    print(f"  🗑️ Removed from pending users of group {group_id}")
-                
-                # Удаляем из участников (если был одобрен)
-                if str(user_id) in group_data.get('members', {}):
-                    del group_data['members'][str(user_id)]
-                    print(f"  🗑️ Removed from members of group {group_id}")
-                
-                # Сохраняем изменения в группе
-                if self.db.save_group(group_id, group_data):
-                    print(f"  💾 Saved updated group data for {group_id}")
+            if not group_data:
+                print(f"  ⚠️ Group {group_id} not found")
+                return False
             
-            # 2. Удаляем файл пользователя из пользовательской базы (если существует)
+            user_id_str = str(user_id)
+            data_changed = False
+            
+            # 2. Удаляем из ожидания
+            if user_id_str in group_data.get('pending_users', {}):
+                del group_data['pending_users'][user_id_str]
+                data_changed = True
+                print(f"  🗑️ Removed from pending_users of group {group_id}")
+            
+            # 3. Удаляем из участников (если был одобрен)
+            if user_id_str in group_data.get('members', {}):
+                del group_data['members'][user_id_str]
+                data_changed = True
+                print(f"  🗑️ Removed from members of group {group_id}")
+            
+            # 4. Сохраняем изменения В ТОТ ЖЕ ФАЙЛ
+            if data_changed:
+                if self.db.save_group(group_id, group_data):
+                    print(f"  💾 Successfully saved cleaned group data to {group_id}.json")
+                else:
+                    print(f"  ❌ Failed to save group data for {group_id}")
+                    return False
+            
+            # 5. Удаляем файл пользователя из пользовательской базы (если существует)
             try:
                 import os
                 from config import BOT_SETTINGS
@@ -294,16 +320,18 @@ class GroupManager:
                 
                 if os.path.exists(user_file):
                     os.remove(user_file)
-                    print(f"  🗑️ Deleted user file: {user_file}")
+                    print(f"  🗑️ Deleted user file: {user_id}.json")
                 else:
-                    print(f"  ℹ️ User file not found: {user_file}")
+                    print(f"  ℹ️ User file not found: {user_id}.json")
             except Exception as e:
                 print(f"  ⚠️ Could not delete user file: {e}")
             
-            print(f"✅ All data for user {user_id} has been cleaned up")
+            print(f"✅ All data for user {user_id} has been cleaned up from group {group_id}")
+            return True
             
         except Exception as e:
             print(f"❌ Error cleaning up all user data {user_id}: {e}")
+            return False
     
     async def _restrict_member_permissions(self, group_id, user_id, context: ContextTypes.DEFAULT_TYPE):
         """Ограничивает права пользователя - нельзя отправлять сообщения"""

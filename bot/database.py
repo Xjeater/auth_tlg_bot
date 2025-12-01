@@ -44,7 +44,17 @@ class JSONDatabase:
     
     def save_group(self, group_id, group_data):
         """Сохраняет данные группы"""
-        return self._write_json(self._get_group_file(group_id), group_data)
+        filepath = self._get_group_file(group_id)
+        print(f"💾 Saving group {group_id} to {filepath}")
+        print(f"   Members: {len(group_data.get('members', {}))}")
+        print(f"   Pending: {len(group_data.get('pending_users', {}))}")
+        
+        result = self._write_json(filepath, group_data)
+        if result:
+            print(f"✅ Group {group_id} saved successfully")
+        else:
+            print(f"❌ Failed to save group {group_id}")
+        return result
     
     def create_group(self, group_id, group_title):
         """Создает новую группу"""
