@@ -1,5 +1,5 @@
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler, ContextTypes, CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler, ContextTypes, CallbackQueryHandler, ChatMemberHandler
 from .auth import AuthManager
 from .group_manager import GroupManager
 from .database import JSONDatabase
@@ -38,13 +38,13 @@ class TelegramAuthBot:
             filters.StatusUpdate.NEW_CHAT_MEMBERS,
             self.group_manager.handle_new_chat_member
         ))
-
-        # Добавьте этот обработчик для отслеживания самостоятельного присоединения
+        
+        # Обработчик для отслеживания самостоятельного присоединения по ссылке
         self.application.add_handler(ChatMemberHandler(
             self.group_manager.handle_chat_member_update,
             ChatMemberHandler.CHAT_MEMBER
         ))
-                
+        
         # Обработчик callback запросов (кнопки подтверждения)
         self.application.add_handler(CallbackQueryHandler(
             self._handle_callback_query,
